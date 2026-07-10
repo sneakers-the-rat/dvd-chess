@@ -297,7 +297,7 @@ function renderHistory() {
   });
   sel.selectedIndex = viewIndex;
   const opt = sel.options[viewIndex];
-  if (opt && opt.scrollIntoView) opt.scrollIntoView({ block: 'nearest' });
+  if (opt) opt.parentNode.scrollTop = opt.offsetTop;
 }
 function resetHistory(startLabel) {
   history = [{ fen: cur.fen, label: startLabel || '— start —' }];
