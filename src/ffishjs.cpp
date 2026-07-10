@@ -49,6 +49,9 @@ void initialize_stockfish() {
   Bitboards::init();
   Position::init();
   Bitbases::init();
+  Search::init();
+  Threads.set(size_t(1));
+  Search::clear();
 }
 
 #define DELIM " "
@@ -161,6 +164,35 @@ public:
     pos.undo_move(this->moveStack.back());
     moveStack.pop_back();
     states->pop_back();
+  }
+
+  // Run the real engine search on a throwaway copy from the current position and return the best
+  // move in UCI notation. movetimeMs <= 0 falls back to a fixed depth.
+  // idk this is easier than trying to manage a bunch of threads in JS/webworkers/etc.
+  // and we truly do not care about how good the AI plays as long as it can at least respond to DVD.
+  std::string best_move(int movetimeMs) {
+    const std::string curFen = pos.fen();
+    const Variant* var = pos.variant();
+    StateListPtr tmpStates(new std::deque<StateInfo>(1));
+    Position p;
+    p.set(var, curFen, is960, &tmpStates->back(), Threads.main());
+    Search::LimitsType limits;
+    limits.startTime = now();
+    if (movetimeMs > 0)
+      limits.movetime = movetimeMs;
+    else
+      limits.depth = 8;
+    Threads.start_thinking(p, tmpStates, limits, false);
+    Threads.main()->wait_for_search_finished();
+    Thread* best = Threads.get_best_thread();
+    if (best->rootMoves.empty() || best->rootMoves[0].pv.empty() || best->rootMoves[0].pv[0] == MOVE_NONE)
+      return "(none)";
+    const Move m = best->rootMoves[0].pv[0];
+    // Format from a fresh position (p's state was moved into the search).
+    StateInfo si;
+    Position pf;
+    pf.set(var, curFen, is960, &si, Threads.main());
+    return UCI::move(pf, m);
   }
 
   void reset() {
@@ -689,6 +721,7 @@ EMSCRIPTEN_BINDINGS(ffish_js) {
     .function("legalMovesSan", &Board::legal_moves_san)
     .function("numberLegalMoves", &Board::number_legal_moves)
     .function("push", &Board::push)
+    .function("bestMove", &Board::best_move)
     .function("pushSan", select_overload<bool(std::string)>(&Board::push_san))
     .function("pushSan", select_overload<bool(std::string, Notation)>(&Board::push_san))
     .function("pop", &Board::pop)
@@ -754,7 +787,11 @@ EMSCRIPTEN_BINDINGS(ffish_js) {
   function("setOption", &ffish::set_option<std::string>);
   function("setOptionInt", &ffish::set_option<int>);
   function("setOptionBool", &ffish::set_option<bool>);
+#if !defined(__EMSCRIPTEN_major__) || __EMSCRIPTEN_major__ < 2
   function("readGamePGN", &read_game_pgn);
+#endif
+  // Note: on emscripten >= 2 the readGamePGN binding is omitted because newer
+  // embind cannot return the non-copyable Game (holds a unique_ptr) by value.
   function("variants", &ffish::available_variants);
   function("loadVariantConfig", &ffish::load_variant_config);
   function("capturesToHand", &ffish::captures_to_hand);

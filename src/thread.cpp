@@ -36,9 +36,18 @@ ThreadPool Threads; // Global object
 /// Thread constructor launches the thread and waits until it goes to sleep
 /// in idle_loop(). Note that 'searching' and 'exit' should be already set.
 
-Thread::Thread(size_t n) : idx(n), stdThread(&Thread::idle_loop, this) {
-
+Thread::Thread(size_t n)
+    : idx(n)
+#ifndef __EMSCRIPTEN__
+    , stdThread(&Thread::idle_loop, this)
+#endif
+{
+#ifndef __EMSCRIPTEN__
+  // Single-threaded WebAssembly builds cannot spawn OS threads (no
+  // SharedArrayBuffer / pthreads on plain static hosting). There the search
+  // runs synchronously on the calling thread (see start_searching()).
   wait_for_search_finished();
+#endif
 }
 
 
@@ -50,8 +59,10 @@ Thread::~Thread() {
   assert(!searching);
 
   exit = true;
+#ifndef __EMSCRIPTEN__
   start_searching();
   stdThread.join();
+#endif
 }
 
 
@@ -80,9 +91,17 @@ void Thread::clear() {
 
 void Thread::start_searching() {
 
+#ifdef __EMSCRIPTEN__
+  // No worker thread parked in idle_loop(): run the search inline.
+  searching = true;
+  if (!exit)
+      search();
+  searching = false;
+#else
   std::lock_guard<std::mutex> lk(mutex);
   searching = true;
   cv.notify_one(); // Wake up the thread in idle_loop()
+#endif
 }
 
 
@@ -91,8 +110,10 @@ void Thread::start_searching() {
 
 void Thread::wait_for_search_finished() {
 
+#ifndef __EMSCRIPTEN__
   std::unique_lock<std::mutex> lk(mutex);
   cv.wait(lk, [&]{ return !searching; });
+#endif
 }
 
 

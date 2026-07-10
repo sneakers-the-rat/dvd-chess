@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta property="og:title" content="dvd chess"/>
+<meta property="og:image" content="./header.png"/>
+<meta property="og:description" content="what if chess but it had DVD"/>
+<meta property="twitter:image" content="./header.png">
+<meta name="fediverse:creator" content="@jonny@neuromatch.social">
+<title>DVD Chess</title>
+<style>
+  body {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 16px;
+    color: #101010;
+    background: #b9b9ad;
+    margin: 0;
+    padding: 10px;
+  }
+  a { color: #002080; }
+
+  /* thats right baby you can resize everything */
+  .frame {
+    border: 4px ridge #d8d8cc;
+    background: #e9e9df;
+    padding: 8px 10px;
+    margin: 8px 0;
+    overflow: auto;
+    resize: both;
+    box-shadow: inset 1px 1px 0 #fff, inset -1px -1px 0 #7d7d70;
+  }
+  .inset { border: 3px inset #cfcfc4; background: #f3f3ea; padding: 6px; overflow: auto; resize: both; }
+
+  #banner { text-align: center; resize: both; }
+  #banner h1 { font-size: 30px; font-weight: bold; margin: 2px 0; letter-spacing: 1px; }
+  #banner .sub { font-style: italic; font-size: 15px; margin: 0; }
+  .game-grid { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; }
+  #left { flex: 0 0 auto; }
+  .right-col { flex: 1 1 240px; min-width: 210px; display: flex; flex-direction: column; gap: 12px; }
+  #right { flex: 0 0 auto; }
+  #history-frame { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 160px; }
+  #history-frame #history { flex: 1 1 auto; height: auto; min-height: 120px; width: 100%; box-sizing: border-box; }
+  @media (max-width: 720px) {
+    .game-grid { flex-direction: column; align-items: stretch; }
+  }
+
+  /* sure why not drag it too */
+  .frame.floating { position: absolute; margin: 0; z-index: 50; box-shadow: 4px 4px 12px rgba(0,0,0,.55); }
+  body.dragging, body.dragging * { user-select: none !important; }
+  body.dragging { cursor: move; }
+  td.lastfrom { background: #e6d76b !important; }
+  td.lastto   { background: #d9c23a !important; }
+
+  table.board { border-collapse: collapse; border: 3px ridge #888; }
+  .board td.sq { width: 46px; height: 46px; text-align: center; vertical-align: middle; font-size: 32px; line-height: 46px; cursor: pointer; position: relative; }
+  /* travel-direction arrow: a separate overlay, independent of the piece art */
+  .dvd-arrow { position: absolute; font-size: 15px; line-height: 1; font-weight: bold; color: #c00000; text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 2px #fff; pointer-events: none; }
+  .dvd-arrow.ne { top: 1px; right: 2px; }
+  .dvd-arrow.nw { top: 1px; left: 2px; }
+  .dvd-arrow.se { bottom: 1px; right: 2px; }
+  .dvd-arrow.sw { bottom: 1px; left: 2px; }
+  .board td.coord { width: 15px; height: 15px; font-size: 11px; color: #333; text-align: center; }
+  td.light { background: #e6dcc0; }
+  td.dark  { background: #9a8a63; }
+  td.selected { box-shadow: inset 0 0 0 3px #002080; }
+  td.target  { box-shadow: inset 0 0 0 3px rgba(0,32,128,.5); }
+  td.capture { box-shadow: inset 0 0 0 3px #a00; }
+  .piece { user-select: none; }
+  .piece.w { color: #fffdf8; text-shadow: 0 0 1px #000, 0 1px 1px #444; }
+  .piece.b { color: #1a140f; }
+  /* DVD piece: the logo SVG inlined so we can recolour its paths. The fill
+     flips with the owning side (white logo for White, black for Black) and an
+     opposite-colour stroke outlines it so it stays visible on any square. */
+  .piece.dvd {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px; vertical-align: middle; padding: 0;
+  }
+  .piece.dvd svg { width: 100%; height: 100%; display: block; overflow: visible; pointer-events: none; }
+  .piece.dvd svg path { paint-order: stroke; stroke-linejoin: round; stroke-width: 34px; }
+  .piece.dvd.w svg path { fill: #ffffff; stroke: #000000; }
+  .piece.dvd.b svg path { fill: #101010; stroke: #ffffff; }
+
+  .controls div { margin: 6px 0; }
+  button {
+    font-family: "Times New Roman", serif; font-size: 15px; padding: 2px 10px; cursor: pointer;
+    border: 3px outset #e4e4d8; background: #dcdcd0; resize: both; overflow: auto;
+  }
+  button:active { border-style: inset; }
+  select { font-family: "Times New Roman", serif; font-size: 15px; border: 2px inset #b8b8ac; }
+  #status { margin-top: 10px; font-style: italic; }
+  #promo { display: none; margin-top: 8px; padding: 6px; background: #fff; border: 3px inset #c0c0b4; }
+  #promo button { margin: 2px; }
+
+  iframe.notes { width: 100%; min-height: 190px; border: 3px inset #b8b8ac; background:#fff; resize: both; overflow:auto; }
+  ul { margin: 6px 0; padding-left: 1.4em; }
+  li { margin: 3px 0; }
+  hr { border: 0; border-top: 2px groove #cfcfc4; }
+  .foot { font-size: 13px; color: #303030; }
+  code { font-family: "Courier New", monospace; }
+</style>
+</head>
+<body>
+
+  <div class="frame" id="banner">
+    <h1>DVD&nbsp;&nbsp;CHESS</h1>
+    <p class="sub">what if chess but it had DVD</p>
+  </div>
+
+  <div class="frame">
+    <div class="inset">
+      <p>
+        It's chess with the DVD logo as an NPC.
+        Full rules at the bottom. Spawn one manually to test it out, or promote a pawn to get one. 
+        Runs a modified version of 
+        <a href="https://github.com/fairy-stockfish/Fairy-Stockfish">Fairy-Stockfish</a>,
+        and who knows the bot might even know how the DVD piece works. unclear. <a href="https://github.com/sneakers-the-rat/dvd-chess">here is the source code</a>
+      </p>
+      <p>
+        
+      </p>
+    </div>
+  </div>
+
+  <div class="game-grid">
+    <div class="frame" id="left">
+      <div id="board"></div>
+    </div>
+
+    <div class="right-col">
+      <div class="frame" id="right">
+        <div class="controls">
+          <div>
+            <button id="btn-new">New game</button>
+            <button id="btn-dvd">Add DVD</button>
+            <button id="btn-spawn">Demo DVD spawn position</button>
+          </div>
+          <div>You play:
+            <select id="side">
+              <option value="w" selected>White</option>
+              <option value="b">Black</option>
+            </select>
+          </div>
+          <div><label><input type="checkbox" id="ai" checked> play against the engine</label><label><input type="checkbox" id="sfx">sound effects</label></div>
+          <div>Engine time:
+            <select id="level">
+              <option value="300">0.3 s</option>
+              <option value="700" selected>0.7 s</option>
+              <option value="2000">2 s</option>
+            </select>
+          </div>
+          <div id="promo"></div>
+          <div id="status">Loading engine&hellip;</div>
+          <div style="margin-top:8px;">
+            FEN (edit to set the position):<br>
+            <input type="text" id="fen" spellcheck="false" autocomplete="off"
+                   style="width:100%; box-sizing:border-box; font-family:'Courier New',monospace; font-size:12px; border:2px inset #b8b8ac;">
+          </div>
+        </div>
+      </div>
+
+      <div class="frame" id="history-frame">
+        <p style="margin:0 0 6px;"><b>Move history</b> &nbsp;<span class="foot">(select a row to jump; includes the DVD's own moves)</span></p>
+        <select id="history" size="12" style="font-family:'Courier New',monospace; font-size:13px; border:3px inset #b8b8ac;"></select>
+      </div>
+    </div>
+  </div>
+
+  <div class="frame">
+    <p style="margin:0 0 6px;"><b>How the DVD piece works</b></p>
+    <iframe class="notes" title="rules" srcdoc='
+      <body style="font-family:Times New Roman,serif;font-size:15px;margin:8px;color:#101010;">
+      <ul>
+        <li>DVD may not go in the corners.</li>
+        <li>Get DVD by promoting a pawn in any file except A and H (or, in the demo, just click Add DVD). NO CORNERS.</li>
+        <li>DVD changes colors every other turn, unless moved</li>
+        <li>DVD moves diagonally. After every turn, DVD moves one square diagonally on its current trajectory.</li>
+        <li>DVD is not under player control unless it is on a side</li>
+        <li>When DVD hits a side, it bounces off unless moved</li>
+        <li>When DVD is on a side, if it is your color, you can move DVD one square along the side, except the corner. DVD may not capture when moved sideways. Moving DVD delays its color change by one turn. Moving DVD takes the players turn.</li>
+        <li>Moving DVD affects its diagonal direction: e.g. if DVD was on A5 and moved to A6, it will proceed to B7. If it was moved to A4, it will proceed to B3.</li>
+        <li>When DVD encounters another piece while moving diagonally, it captures it if it is the opposite color, and is stuck and waits if the same color. When color flips, it continues along the same course, capturing.</li>
+        <li>DVD cannot give check, and kings are bumpers.</li>
+      </ul>
+      <h3>FEN notation</h3>
+      DVD is represented by four pieces depending on the direction of movement from the perspective of white.
+      <ul>
+        <li>d - northeast</li>
+        <li>v - northwest</li>
+        <li>w - southeast</li>
+        <li>y - southwest</li>
+      </ul>
+      <h3>fairy stockfish variant config</h3>
+      <p>to play dvd chess with the fairy stockfish fork, use the following variant config<p>
+      <pre>[dvdchess:chess]
+customPiece1 = d:
+customPiece2 = v:
+customPiece3 = w:
+customPiece4 = y:
+dvdChess = true
+pieceValueMg = d:200 v:200 w:200 y:200
+pieceValueEg = d:200 v:200 w:200 y:200</pre>
+      </body>'></iframe>
+  </div>
+
+  <div class="frame foot">
+    <hr>
+    The way this works is i forked the fairy stockfish and messed it up a little, and then patched in their <a href="https://github.com/fairy-stockfish/fairy-stockfish.wasm/tree/nnue/src/emscripten">code to make it compile to wasm</a> and then pretty much thats it. That code is licensed as GPL-3 and so is fairy stockfish so i guess <a href="https://github.com/sneakers-the-rat/dvd-chess">this</a> is also licensed as GPL-3. I got the inspiration for this from some meme i saw but i don't want to like link everyone to their profile without asking and i don't even know if they came up with it. so if you were the one who came up with the dvd chess meme and want me to link to you then just idk <a href="https://github.com/sneakers-the-rat/dvd-chess/issues">raise an issue</a> or <a href="https://neuromatch.social/@jonny">dm me</a> or something.
+  </div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

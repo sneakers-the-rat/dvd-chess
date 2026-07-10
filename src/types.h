@@ -432,6 +432,23 @@ static_assert(KING < PIECE_TYPE_NB, "KING exceeds PIECE_TYPE_NB.");
 static_assert(PIECE_TYPE_BITS <= 6, "PIECE_TYPE uses more than 6 bit");
 static_assert(!(PIECE_TYPE_NB & (PIECE_TYPE_NB - 1)), "PIECE_TYPE_NB is not a power of 2");
 
+// DVD chess: the four diagonal directions of DVD are
+// encoded as four custom piece types (direction == piece type). Color is the
+// normal white/black bit.
+constexpr PieceType DVD_NE = CUSTOM_PIECE_1;
+constexpr PieceType DVD_NW = CUSTOM_PIECE_2;
+constexpr PieceType DVD_SE = CUSTOM_PIECE_3;
+constexpr PieceType DVD_SW = CUSTOM_PIECE_4;
+constexpr int DVD_MAX = 32; // max DVD actions recorded per ply for undo
+
+inline bool is_dvd(PieceType pt) { return pt >= DVD_NE && pt <= DVD_SW; }
+// file/rank deltas (+1/-1) of a DVD direction
+inline int dvd_df(PieceType pt) { return (pt == DVD_NE || pt == DVD_SE) ? 1 : -1; }
+inline int dvd_dr(PieceType pt) { return (pt == DVD_NE || pt == DVD_NW) ? 1 : -1; }
+inline PieceType dvd_type_of(int df, int dr) {
+  return dr > 0 ? (df > 0 ? DVD_NE : DVD_NW) : (df > 0 ? DVD_SE : DVD_SW);
+}
+
 static_assert(2 * SQUARE_BITS + MOVE_TYPE_BITS + 2 * PIECE_TYPE_BITS <= 32, "Move encoding uses more than 32 bits");
 
 enum Piece {

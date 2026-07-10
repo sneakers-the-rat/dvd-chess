@@ -73,6 +73,13 @@ struct StateInfo {
   Piece      promotionPawn;
   Bitboard   nonSlidingRiders;
   Bitboard   flippedPieces;
+  // DVD chess: per-ply record of DVD auto-advance / nudge actions, for undo.
+  int        dvdCount;
+  Square     dvdNudgeSq;
+  Square     dvdFrom[DVD_MAX];
+  Square     dvdTo[DVD_MAX];
+  PieceType  dvdTypeBefore[DVD_MAX];
+  Piece      dvdCaptured[DVD_MAX];
   Bitboard   pseudoRoyalCandidates;
   Bitboard   pseudoRoyals;
   OptBool    legalCapture;
@@ -140,6 +147,7 @@ public:
   bool mandatory_piece_promotion() const;
   bool piece_demotion() const;
   bool blast_on_capture() const;
+  bool dvd_chess() const;
   PieceSet blast_immune_types() const;
   PieceSet mutually_immune_types() const;
   EndgameEval endgame_eval() const;
@@ -506,6 +514,11 @@ inline bool Position::piece_demotion() const {
 inline bool Position::blast_on_capture() const {
   assert(var != nullptr);
   return var->blastOnCapture;
+}
+
+inline bool Position::dvd_chess() const {
+  assert(var != nullptr);
+  return var->dvdChess;
 }
 
 inline PieceSet Position::blast_immune_types() const {

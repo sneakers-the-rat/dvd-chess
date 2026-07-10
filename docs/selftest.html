@@ -1,0 +1,26 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
+<pre id="out">running…</pre>
+<script type="module">
+import Ffish from './ffish.js';
+const out = document.getElementById('out');
+try {
+  const ff = await Ffish();
+  ff.loadVariantConfig(`[dvdchess:chess]
+customPiece1 = d:
+customPiece2 = v:
+customPiece3 = w:
+customPiece4 = y:
+dvdChess = true
+`);
+  const b = new ff.Board('dvdchess', 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1');
+  const n = b.legalMoves().split(' ').filter(Boolean).length;
+  const okMove = b.push('e2e4');
+  const bm = b.bestMove(300);
+  const b2 = new ff.Board('dvdchess', '4k3/1P6/8/8/8/8/8/4K3 w - - 0 1');
+  const hasDvd = b2.legalMoves().split(' ').includes('b7b8w');
+  b2.push('b7b8w');
+  out.textContent = 'PASS startMoves=' + n + ' pushE4=' + okMove +
+    ' bestmove=' + bm + ' dvdPromoOffered=' + hasDvd + ' fenAfterDvd=' + b2.fen();
+} catch (e) { out.textContent = 'FAIL ' + (e && e.message ? e.message : e); }
+</script>
+</body></html>

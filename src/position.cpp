@@ -2087,11 +2087,156 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
       k ^= Zobrist::wall[gating_square(m)];
   }
 
+  // HERES THE DVD CHESS STUFF.
+  // DVD chess: resolve the bouncing DVD piece(s) as a side effect of the move.
+  // Every DVD advances one diagonal step each turn; the
+  // color flip runs at half speed (only after Black's turns). Both are fully
+  // determined by the board + side to move for simpliciteee.
+  st->dvdCount = 0;
+  if (dvd_chess())
+  {
+      const int maxF = int(max_file());
+      const int maxR = int(max_rank());
+
+      // A DVD nudge is a normal move whose moving piece is itself a DVD: the
+      // engine already moved it along the edge; here we set its outgoing
+      // diagonal and do NOT flip its color.
+      Square nudgeSq = SQ_NONE;
+      if (is_dvd(type_of(pc)))
+      {
+          nudgeSq = to;
+          int tf = int(file_of(to)), tr = int(rank_of(to));
+          int df, dr;
+          if (tf == FILE_A)      { df =  1; dr = tr > int(rank_of(from)) ? 1 : -1; }
+          else if (tf == maxF)   { df = -1; dr = tr > int(rank_of(from)) ? 1 : -1; }
+          else if (tr == RANK_1) { dr =  1; df = tf > int(file_of(from)) ? 1 : -1; }
+          else                   { dr = -1; df = tf > int(file_of(from)) ? 1 : -1; }
+          PieceType nt = dvd_type_of(df, dr);
+          Piece before = piece_on(to);
+          if (type_of(before) != nt)
+          {
+              int idx = st->dvdCount++;
+              st->dvdFrom[idx] = to;      st->dvdTo[idx] = to;
+              st->dvdTypeBefore[idx] = type_of(before);
+              st->dvdCaptured[idx] = NO_PIECE;
+
+              Piece after = make_piece(us, nt);
+              remove_piece(to);
+              k ^= Zobrist::psq[before][to];
+              st->materialKey ^= Zobrist::psq[before][pieceCount[before]];
+              put_piece(after, to);
+              k ^= Zobrist::psq[after][to];
+              st->materialKey ^= Zobrist::psq[after][pieceCount[after] - 1];
+          }
+      }
+      st->dvdNudgeSq = nudgeSq;
+
+      // Auto-advance EVERY DVD one square each turn, except a
+      // just-nudged one.
+      Bitboard dvds = pieces(DVD_NE) | pieces(DVD_NW) | pieces(DVD_SE) | pieces(DVD_SW);
+      if (nudgeSq != SQ_NONE)
+          dvds &= ~square_bb(nudgeSq);
+      while (dvds)
+      {
+          Square s = pop_lsb(dvds);
+          PieceType dt = type_of(piece_on(s));
+          Color dc = color_of(piece_on(s));   // this DVD's own colour
+          int df = dvd_df(dt), dr = dvd_dr(dt);
+          int f = int(file_of(s)), r = int(rank_of(s));
+          int nf = f + df, nr = r + dr;
+          // Reflect off the board edges ...
+          if (nf < FILE_A || nf > maxF) { df = -df; nf = f + df; }
+          if (nr < RANK_1 || nr > maxR) { dr = -dr; nr = r + dr; }
+          // ... and never occupy a corner square. Reversing both axes here
+          // would trap the DVD in an endless back-and-forth on the long
+          // diagonals (it only ever meets corners there). Instead turn left or
+          // right by reflecting a single axis. The choice is a deterministic
+          // but spooky lookin magic number math problem
+          if ((nf == FILE_A || nf == maxF) && (nr == RANK_1 || nr == maxR))
+          {
+              unsigned h = unsigned(f) * 0x9E3779B1u + unsigned(r) * 0x85EBCA77u + unsigned(dt) * 0xC2B2AE3Du;
+              if ((h >> 15) & 1u) df = -df;   // reflect off the side wall
+              else                dr = -dr;   // reflect off the top/bottom wall
+              nf = f + df; nr = r + dr;
+          }
+
+          Square target = make_square(File(nf), Rank(nr));
+          Piece occ = piece_on(target);
+
+          bool moves;
+          Piece captured2 = NO_PIECE;
+          PieceType finalType;
+          if (occ == NO_PIECE)                                   // empty: advance
+          { moves = true;  finalType = dvd_type_of(df, dr); }
+          else if (type_of(occ) == KING)                         // king bumper: reverse, stay
+          { moves = false; finalType = dvd_type_of(-df, -dr); }
+          else if (color_of(occ) == dc && is_dvd(type_of(occ)))  // same-color DVD: bounce
+          { moves = false; finalType = dvd_type_of(-df, -dr); }
+          else if (color_of(occ) == dc)                          // same-color piece: block
+          { moves = false; finalType = dt; }
+          else                                                   // opposing piece: capture
+          { moves = true;  finalType = dvd_type_of(df, dr); captured2 = occ; }
+
+          int idx = st->dvdCount++;
+          st->dvdFrom[idx] = s;
+          st->dvdTo[idx] = moves ? target : s;
+          st->dvdTypeBefore[idx] = dt;
+          st->dvdCaptured[idx] = captured2;
+
+          Piece dvdOld = piece_on(s);
+          remove_piece(s);
+          k ^= Zobrist::psq[dvdOld][s];
+          st->materialKey ^= Zobrist::psq[dvdOld][pieceCount[dvdOld]];
+          st->nonPawnMaterial[dc] -= PieceValue[MG][dvdOld];
+
+          if (captured2)
+          {
+              remove_piece(target);
+              k ^= Zobrist::psq[captured2][target];
+              st->materialKey ^= Zobrist::psq[captured2][pieceCount[captured2]];
+              if (type_of(captured2) != PAWN)
+                  st->nonPawnMaterial[color_of(captured2)] -= PieceValue[MG][captured2];
+          }
+
+          // Place the DVD in its own colour (colour flip, if any, happens below).
+          Piece dvdNew = make_piece(dc, finalType);
+          Square dest = moves ? target : s;
+          put_piece(dvdNew, dest);
+          k ^= Zobrist::psq[dvdNew][dest];
+          st->materialKey ^= Zobrist::psq[dvdNew][pieceCount[dvdNew] - 1];
+          st->nonPawnMaterial[dc] += PieceValue[MG][dvdNew];
+      }
+
+      // Colour flip at HALF speed: only after Black's turns.
+      // Otherwise it woudl be impossible to capture, since it would always be your color on your turn.
+      if (us == BLACK)
+      {
+          Bitboard toFlip = pieces(DVD_NE) | pieces(DVD_NW) | pieces(DVD_SE) | pieces(DVD_SW);
+          if (nudgeSq != SQ_NONE)
+              toFlip &= ~square_bb(nudgeSq);
+          while (toFlip)
+          {
+              Square s = pop_lsb(toFlip);
+              Piece before = piece_on(s);
+              Piece after = ~before;
+              Color bc = color_of(before);
+              remove_piece(s);
+              k ^= Zobrist::psq[before][s];
+              st->materialKey ^= Zobrist::psq[before][pieceCount[before]];
+              st->nonPawnMaterial[bc] -= PieceValue[MG][before];
+              put_piece(after, s);
+              k ^= Zobrist::psq[after][s];
+              st->materialKey ^= Zobrist::psq[after][pieceCount[after] - 1];
+              st->nonPawnMaterial[~bc] += PieceValue[MG][after];
+          }
+      }
+  }
+
   // Update the key with the final value
   st->key = k;
   // Calculate checkers bitboard (if move gives check)
-  st->checkersBB = givesCheck ? attackers_to(square<KING>(them), us) & pieces(us) : Bitboard(0);
-  assert(givesCheck == bool(st->checkersBB));
+  st->checkersBB = (givesCheck || dvd_chess()) ? attackers_to(square<KING>(them), us) & pieces(us) : Bitboard(0);
+  assert(givesCheck == bool(st->checkersBB) || dvd_chess());
 
   sideToMove = ~sideToMove;
 
@@ -2146,6 +2291,39 @@ void Position::undo_move(Move m) {
   sideToMove = ~sideToMove;
 
   Color us = sideToMove;
+
+  // DVD chess: reverse the DVD resolution first (it was applied last in do_move).
+  // this probably won't work for the um center diagonal case but that's an edge case anyway
+  if (dvd_chess())
+  {
+      // Reverse the half-speed colour flip first (it was applied last in
+      // do_move, and only after Black's turns).
+      if (us == BLACK)
+      {
+          Bitboard toFlip = pieces(DVD_NE) | pieces(DVD_NW) | pieces(DVD_SE) | pieces(DVD_SW);
+          if (st->dvdNudgeSq != SQ_NONE)
+              toFlip &= ~square_bb(st->dvdNudgeSq);
+          while (toFlip)
+          {
+              Square s = pop_lsb(toFlip);
+              Piece before = piece_on(s);
+              remove_piece(s);
+              put_piece(~before, s);
+          }
+      }
+      // After un-flipping, each acted DVD is back to the colour it had while
+      // advancing, so reverse the moves/nudges by restoring it to its source.
+      for (int i = st->dvdCount - 1; i >= 0; --i)
+      {
+          Square f = st->dvdFrom[i], t = st->dvdTo[i];
+          Color dc = color_of(piece_on(t));
+          remove_piece(t);
+          if (st->dvdCaptured[i])
+              put_piece(st->dvdCaptured[i], t);
+          put_piece(make_piece(dc, st->dvdTypeBefore[i]), f);
+      }
+  }
+
   Square from = from_sq(m);
   Square to = to_sq(m);
   Piece pc = piece_on(to);

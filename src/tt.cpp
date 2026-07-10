@@ -85,6 +85,12 @@ void TranspositionTable::resize(size_t mbSize) {
 
 void TranspositionTable::clear() {
 
+#ifdef __EMSCRIPTEN__
+  // Single-threaded WebAssembly build: cannot spawn threads.
+  std::memset(table, 0, clusterCount * sizeof(Cluster));
+  return;
+#endif
+
   std::vector<std::thread> threads;
 
   for (size_t idx = 0; idx < Options["Threads"]; ++idx)

@@ -99,6 +99,19 @@ namespace {
         PieceType pt = pos.promoted_piece_type(PAWN);
         if (pt && !(pos.piece_promotion_on_capture() && pos.empty(to)))
             moveList = make_move_and_gating<PIECE_PROMOTION>(pos, moveList, pos.side_to_move(), to - D, to);
+
+        // DVD chess: a pawn may promote to a DVD on any file except a and h.
+        // The initial diagonal is fixed by file/side (inward, toward the center).
+        if (pos.dvd_chess())
+        {
+            File f = file_of(to);
+            if (f != FILE_A && f != pos.max_file())
+            {
+                int df = 2 * int(f) < int(pos.max_file()) ? 1 : -1;
+                int dr = c == WHITE ? -1 : 1;
+                moveList = make_move_and_gating<PROMOTION>(pos, moveList, c, to - D, to, dvd_type_of(df, dr));
+            }
+        }
     }
 
     return moveList;
@@ -438,6 +451,41 @@ namespace {
                 Square to = from + 2 * (Us == WHITE ? NORTH : SOUTH);
                 if (is_ok(to) && (target & to & ~pos.pieces()))
                     moveList = make_move_and_gating<SPECIAL>(pos, moveList, Us, from, to);
+            }
+        }
+
+        // DVD chess: nudge moves. When the mover owns a DVD on a side, it may
+        // (as its whole turn) shift it one square along that side into an empty
+        // non-corner square, which sets the DVD's outgoing diagonal.
+        if (pos.dvd_chess() && (Type == NON_EVASIONS || Type == QUIETS))
+        {
+            const File maxF = pos.max_file();
+            const Rank maxR = pos.max_rank();
+            Bitboard dvds = (pos.pieces(DVD_NE) | pos.pieces(DVD_NW) | pos.pieces(DVD_SE) | pos.pieces(DVD_SW)) & pos.pieces(Us);
+            while (dvds)
+            {
+                Square s = pop_lsb(dvds);
+                File f = file_of(s); Rank r = rank_of(s);
+                bool leftRight = (f == FILE_A || f == maxF);
+                bool topBottom = (r == RANK_1 || r == maxR);
+                if (!leftRight && !topBottom)
+                    continue; // not on a side
+                Direction along[2];
+                int n = 0;
+                if (leftRight) { along[n++] = NORTH; along[n++] = SOUTH; }
+                else           { along[n++] = EAST;  along[n++] = WEST;  }
+                for (int i = 0; i < n; ++i)
+                {
+                    Square t = s + along[i];
+                    if (!is_ok(t) || distance(s, t) != 1 || !(pos.board_bb() & t))
+                        continue;
+                    File tf = file_of(t); Rank tr = rank_of(t);
+                    bool corner = (tf == FILE_A || tf == maxF) && (tr == RANK_1 || tr == maxR);
+                    if (corner || !pos.empty(t))
+                        continue;
+                    if (target & t)
+                        *moveList++ = make_move(s, t);
+                }
             }
         }
 

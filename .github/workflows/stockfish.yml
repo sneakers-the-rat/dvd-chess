@@ -1,10 +1,10 @@
 name: Stockfish
 on:
-  push:
-    branches:
-      - master
-      - tools
-      - github_ci
+  # push:
+  #   branches:
+  #     - master
+  #     - tools
+  #     - github_ci
   pull_request:
     branches:
       - master

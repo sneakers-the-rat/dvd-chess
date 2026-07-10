@@ -46,8 +46,16 @@ endif
 # Compile version with support for large board variants
 # Use precomputed magics by default
 ifneq ($(largeboards),no)
-	CXXFLAGS += -DLARGEBOARDS -DPRECOMPUTED_MAGICS -s TOTAL_MEMORY=32MB -s ALLOW_MEMORY_GROWTH=1 -s WASM_MEM_MAX=1GB
+	# NOTE: fixed (non-growable) memory on purpose. Emscripten's growable memory
+	# uses a *resizable* ArrayBuffer, and Firefox's TextDecoder.decode rejects
+	# views over resizable buffers, which breaks every C-string decode
+	# (legalMoves(), fen(), ...). A fixed heap keeps a plain ArrayBuffer.
+	CXXFLAGS += -DLARGEBOARDS -DPRECOMPUTED_MAGICS -s INITIAL_MEMORY=536870912
 endif
+
+# A larger stack is required for the engine's deep search recursion
+# (ffish.js on its own never searches, but DVD chess uses Board::bestMove).
+CXXFLAGS += -s STACK_SIZE=8MB
 
 # Enable all variants, even heavyweight ones like duck and amazons
 ifneq ($(all),no)
@@ -56,7 +64,7 @@ endif
 
 ### Compile as ES6/ES2015 module
 ifeq ($(es6),yes)
-	CXXFLAGS += -s ENVIRONMENT='web,worker' -s EXPORT_ES6=1 -s MODULARIZE=1 -s USE_ES6_IMPORT_META=0
+	CXXFLAGS += -s ENVIRONMENT='web,worker' -s EXPORT_ES6=1 -s MODULARIZE=1
 endif
 
 .PHONY: help objclean clean build deps test serve
